@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import previewRouter from "./lib/previewRouter";
 
 const app: Express = express();
 
@@ -30,5 +31,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
+
+// Serve real deployed content at /preview/:deploymentId/*
+app.use(previewRouter);
 
 export default app;

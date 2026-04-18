@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { db, deploymentsTable, deploymentLogsTable, projectsTable, apiKeysTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { getIO } from "../lib/socketio";
-import { runMockBuild } from "../lib/buildEngine";
+import { runRealBuild, teardownDeployment } from "../lib/realBuildEngine";
 
 const router: IRouter = Router();
 
@@ -46,7 +46,7 @@ router.post("/v1/deploy", async (req: Request, res): Promise<void> => {
 
   const io = getIO();
   setImmediate(() => {
-    runMockBuild(id, projectId, effectiveRepoUrl, io).catch(console.error);
+    runRealBuild(id, projectId, effectiveRepoUrl ?? "", io).catch(console.error);
   });
 
   res.status(201).json(deployment);
@@ -74,6 +74,7 @@ router.get("/v1/deployments/:id", async (req, res): Promise<void> => {
 router.delete("/v1/deployments/:id", async (req, res): Promise<void> => {
   const id = Array.isArray(req.params["id"]) ? req.params["id"][0] : req.params["id"];
   await db.update(deploymentsTable).set({ status: "taken_down" }).where(eq(deploymentsTable.id, id));
+  await teardownDeployment(id).catch(() => {});
   res.status(204).send();
 });
 

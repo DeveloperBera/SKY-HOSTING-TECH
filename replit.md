@@ -39,7 +39,10 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 ### API Server (`artifacts/api-server`)
 - Express 5 backend with Socket.io for real-time build logs
 - Routes: `/api/v1/projects`, `/api/v1/deploy`, `/api/v1/deployments`, `/api/v1/logs/:id`, `/api/v1/admin/stats`
-- Mock build engine simulating Node.js/Python/Java/Static deployment flows
+- **Real build engine** (`lib/realBuildEngine.ts`): actual `git clone`, `npm install`, build detection, process spawning
+- Preview router (`lib/previewRouter.ts`): serves static files or proxies live Node.js processes at `/preview/:deploymentId/`
+- Supports: Static HTML (serve direct), Node.js with build script (serve dist/), Node.js server (spawn + proxy on port 25000+)
+- Live URLs use real Replit dev domain: `https://<domain>/preview/<deploymentId>/`
 - API key auth via Bearer tokens
 
 ## Database Schema
