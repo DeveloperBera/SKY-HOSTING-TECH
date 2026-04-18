@@ -497,6 +497,16 @@ export async function recoverDeployments(): Promise<void> {
       .from(deploymentsTable)
       .where(eq(deploymentsTable.status, "live"));
 
+    // First pass: update ALL live URLs to use the current domain (handles dev→prod transitions)
+    for (const dep of liveDeployments) {
+      const freshUrl = buildLiveUrl(dep.id);
+      if (dep.liveUrl !== freshUrl) {
+        await db.update(deploymentsTable).set({ liveUrl: freshUrl }).where(eq(deploymentsTable.id, dep.id)).catch(() => {});
+        await db.update(projectsTable).set({ liveUrl: freshUrl }).where(eq(projectsTable.id, dep.projectId)).catch(() => {});
+        logger.info({ deploymentId: dep.id, freshUrl }, "Refreshed live URL domain");
+      }
+    }
+
     let recovered = 0;
     for (const dep of liveDeployments) {
       const deployDir = path.join(BASE_DEPLOY_DIR, dep.id);
