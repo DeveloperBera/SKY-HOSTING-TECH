@@ -3,13 +3,54 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import { existsSync, createWriteStream } from "fs";
 import path from "path";
+import net from "net";
 import type { Server as SocketIOServer } from "socket.io";
 import { db, deploymentsTable, deploymentLogsTable, projectsTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import { logger } from "./logger";
 
 const execAsync = promisify(exec);
 export const BASE_DEPLOY_DIR = "/tmp/sky-deployments";
+
+// Metadata persisted inside each deployment dir so we can recover after restart
+interface DeployMeta {
+  type: "static" | "process";
+  staticDir?: string;
+  startCommand?: string;
+  port?: number;
+  deployDir: string;
+  projectId: string;
+}
+
+function metaPath(deployDir: string): string {
+  return path.join(deployDir, ".sky-meta.json");
+}
+
+async function writeMeta(deployDir: string, meta: DeployMeta): Promise<void> {
+  await fs.writeFile(metaPath(deployDir), JSON.stringify(meta, null, 2), "utf-8");
+}
+
+async function readMeta(deployDir: string): Promise<DeployMeta | null> {
+  try {
+    const raw = await fs.readFile(metaPath(deployDir), "utf-8");
+    return JSON.parse(raw) as DeployMeta;
+  } catch {
+    return null;
+  }
+}
+
+// Check if a TCP port is accepting connections
+function isPortAlive(port: number, timeoutMs = 2000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = new net.Socket();
+    const done = (result: boolean) => { sock.destroy(); resolve(result); };
+    sock.setTimeout(timeoutMs);
+    sock.once("connect", () => done(true));
+    sock.once("timeout", () => done(false));
+    sock.once("error", () => done(false));
+    sock.connect(port, "127.0.0.1");
+  });
+}
 
 // Track running child processes per deployment
 export interface RunningDeployment {
@@ -337,12 +378,26 @@ export async function runRealBuild(
     await emitLog("info", "Configuring SSL...");
     await new Promise<void>(r => setTimeout(r, 300));
 
-    // Register static serving if applicable
+    // Register serving and persist metadata for recovery
     if (serveDir) {
       runningDeployments.set(deploymentId, {
         type: "static",
         staticDir: serveDir,
         deploymentId,
+      });
+      await writeMeta(serveDir === deployDir ? deployDir : deployDir, {
+        type: "static",
+        staticDir: serveDir,
+        deployDir,
+        projectId,
+      });
+    } else if (processPort) {
+      await writeMeta(deployDir, {
+        type: "process",
+        startCommand: startCommand ?? "npm start",
+        port: processPort,
+        deployDir,
+        projectId,
       });
     }
 
@@ -372,6 +427,105 @@ export async function runRealBuild(
       .where(eq(projectsTable.id, projectId)).catch(() => {});
     io.to(`deployment:${deploymentId}`).emit("deployment:status", { deploymentId, status: "failed" });
     logger.error({ deploymentId, err }, "Real build failed");
+  }
+}
+
+// Spawn a process deployment and register it in memory
+async function spawnProcess(
+  deploymentId: string,
+  meta: DeployMeta
+): Promise<void> {
+  const port = meta.port ?? allocatePort();
+  const [cmd, ...args] = (meta.startCommand ?? "npm start").split(" ");
+  const child = spawn(cmd, args, {
+    cwd: meta.deployDir,
+    env: { ...process.env, PORT: String(port), NODE_ENV: "production" },
+    detached: false,
+  });
+  runningDeployments.set(deploymentId, {
+    type: "process",
+    port,
+    process: child,
+    deploymentId,
+  });
+  if (port >= nextPort) nextPort = port + 1;
+  child.on("exit", (code) => {
+    logger.info({ deploymentId, code }, "Deployment process exited");
+    // Process may have daemonized (e.g. PM2) — check if port is still alive
+    const existing = runningDeployments.get(deploymentId);
+    if (existing?.port) {
+      setTimeout(async () => {
+        const alive = await isPortAlive(existing.port!);
+        if (alive) {
+          // Port still up — daemon (PM2/etc) is keeping it alive
+          runningDeployments.set(deploymentId, {
+            type: "process",
+            port: existing.port,
+            deploymentId,
+          });
+          logger.info({ deploymentId, port: existing.port }, "Process daemonized, port still alive");
+        } else {
+          runningDeployments.delete(deploymentId);
+          logger.info({ deploymentId }, "Process exited and port is dead");
+        }
+      }, 3000);
+    }
+  });
+}
+
+// Called once on server startup — re-registers all live deployments that have files on disk
+export async function recoverDeployments(): Promise<void> {
+  logger.info("Recovering live deployments from disk...");
+  try {
+    const liveDeployments = await db
+      .select()
+      .from(deploymentsTable)
+      .where(eq(deploymentsTable.status, "live"));
+
+    let recovered = 0;
+    for (const dep of liveDeployments) {
+      const deployDir = path.join(BASE_DEPLOY_DIR, dep.id);
+      if (!existsSync(deployDir)) continue;
+
+      const meta = await readMeta(deployDir);
+      if (!meta) {
+        // No meta file — try static fallback
+        const indexPath = path.join(deployDir, "index.html");
+        if (existsSync(indexPath)) {
+          runningDeployments.set(dep.id, { type: "static", staticDir: deployDir, deploymentId: dep.id });
+          recovered++;
+        }
+        continue;
+      }
+
+      if (meta.type === "static" && meta.staticDir && existsSync(meta.staticDir)) {
+        runningDeployments.set(dep.id, { type: "static", staticDir: meta.staticDir, deploymentId: dep.id });
+        recovered++;
+      } else if (meta.type === "process" && meta.port) {
+        const alive = await isPortAlive(meta.port);
+        if (alive) {
+          // Process is still alive (e.g. PM2 kept it running)
+          runningDeployments.set(dep.id, { type: "process", port: meta.port, deploymentId: dep.id });
+          if (meta.port >= nextPort) nextPort = meta.port + 1;
+          recovered++;
+        } else {
+          // Re-spawn the process
+          try {
+            await spawnProcess(dep.id, meta);
+            await new Promise<void>(r => setTimeout(r, 2000));
+            recovered++;
+            logger.info({ deploymentId: dep.id }, "Re-spawned deployment process");
+          } catch (err) {
+            logger.warn({ deploymentId: dep.id, err }, "Failed to re-spawn deployment, marking failed");
+            await db.update(deploymentsTable).set({ status: "failed" }).where(eq(deploymentsTable.id, dep.id)).catch(() => {});
+          }
+        }
+      }
+    }
+
+    logger.info({ recovered, total: liveDeployments.length }, "Deployment recovery complete");
+  } catch (err) {
+    logger.error({ err }, "Deployment recovery failed");
   }
 }
 
