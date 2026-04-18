@@ -1,8 +1,10 @@
 import { Link, useLocation } from "wouter";
-import { Activity, LayoutDashboard, Settings, BookOpen, Rocket } from "lucide-react";
+import { LayoutDashboard, Settings, BookOpen, Rocket, LogOut } from "lucide-react";
+import { useAdminAuth } from "@/context/admin-auth";
 
 export function Nav() {
   const [location] = useLocation();
+  const { authenticated, keyName, logout } = useAdminAuth();
 
   const links = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -34,6 +36,22 @@ export function Nav() {
               </Link>
             );
           })}
+
+          {authenticated && (
+            <div className="flex items-center gap-3 pl-4 border-l border-white/10">
+              <span className="text-xs font-mono text-[#00FF41]/70 hidden md:block">
+                {keyName}
+              </span>
+              <button
+                onClick={logout}
+                title="Sign out of admin"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-red-400 transition-colors duration-200"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline-block text-xs font-mono">LOGOUT</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </nav>

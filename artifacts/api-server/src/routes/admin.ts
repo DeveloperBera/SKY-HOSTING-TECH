@@ -1,10 +1,32 @@
 import { Router, type IRouter } from "express";
-import { db, projectsTable, deploymentsTable } from "@workspace/db";
-import { eq, count } from "drizzle-orm";
+import { db, projectsTable, deploymentsTable, apiKeysTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { getIO } from "../lib/socketio";
 import os from "os";
 
 const router: IRouter = Router();
+
+router.post("/v1/admin/login", async (req, res): Promise<void> => {
+  const { key } = req.body as { key?: string };
+  if (!key) {
+    res.status(400).json({ error: "API key is required" });
+    return;
+  }
+
+  const [found] = await db.select().from(apiKeysTable).where(eq(apiKeysTable.key, key));
+
+  if (!found) {
+    res.status(401).json({ error: "Invalid API key" });
+    return;
+  }
+
+  if (found.scope !== "admin") {
+    res.status(403).json({ error: "This key does not have admin scope" });
+    return;
+  }
+
+  res.json({ success: true, name: found.name, scope: found.scope });
+});
 
 router.get("/v1/admin/stats", async (_req, res): Promise<void> => {
   const projects = await db.select().from(projectsTable);
