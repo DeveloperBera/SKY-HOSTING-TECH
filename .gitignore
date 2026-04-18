@@ -47,3 +47,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Sky Hosting — deployed repo clones (large, ephemeral)
+.sky-deployments/
