@@ -10,7 +10,23 @@ import { eq, sql, and } from "drizzle-orm";
 import { logger } from "./logger";
 
 const execAsync = promisify(exec);
-export const BASE_DEPLOY_DIR = "/tmp/sky-deployments";
+
+// Persistent storage — stays alive across process restarts (unlike /tmp)
+export const BASE_DEPLOY_DIR = "/home/runner/workspace/.sky-deployments";
+
+// Resolve the best public domain to use for live URLs.
+// In production: REPLIT_DOMAINS contains sky-hosting.replit.app → use that.
+// In dev: fall back to REPLIT_DEV_DOMAIN (the ugly spock domain).
+function getPublicDomain(): string {
+  const domainsEnv = process.env["REPLIT_DOMAINS"] ?? "";
+  const all = domainsEnv.split(",").map(d => d.trim()).filter(Boolean);
+  const prod = all.find(d => d.endsWith(".replit.app"));
+  return prod ?? process.env["REPLIT_DEV_DOMAIN"] ?? "localhost:8080";
+}
+
+export function buildLiveUrl(deploymentId: string): string {
+  return `https://${getPublicDomain()}/preview/${deploymentId}/`;
+}
 
 // Metadata persisted inside each deployment dir so we can recover after restart
 interface DeployMeta {
@@ -401,9 +417,8 @@ export async function runRealBuild(
       });
     }
 
-    // Build the live URL
-    const devDomain = process.env["REPLIT_DEV_DOMAIN"] ?? "localhost:8080";
-    const liveUrl = `https://${devDomain}/preview/${deploymentId}/`;
+    // Build the live URL using the best available public domain
+    const liveUrl = buildLiveUrl(deploymentId);
 
     // ── LIVE ───────────────────────────────────────────────────────
     await updateStatus("live", { liveUrl, completedAt: new Date() });
@@ -498,6 +513,13 @@ export async function recoverDeployments(): Promise<void> {
         continue;
       }
 
+      // Always refresh the stored liveUrl to the current domain (handles dev→prod transitions)
+      const freshUrl = buildLiveUrl(dep.id);
+      if (dep.liveUrl !== freshUrl) {
+        await db.update(deploymentsTable).set({ liveUrl: freshUrl }).where(eq(deploymentsTable.id, dep.id)).catch(() => {});
+        await db.update(projectsTable).set({ liveUrl: freshUrl }).where(eq(projectsTable.id, dep.projectId)).catch(() => {});
+      }
+
       if (meta.type === "static" && meta.staticDir && existsSync(meta.staticDir)) {
         runningDeployments.set(dep.id, { type: "static", staticDir: meta.staticDir, deploymentId: dep.id });
         recovered++;
@@ -527,6 +549,66 @@ export async function recoverDeployments(): Promise<void> {
   } catch (err) {
     logger.error({ err }, "Deployment recovery failed");
   }
+}
+
+// Background health check — runs every 2 minutes, respawns dead process deployments
+export function startHealthCheck(): void {
+  const INTERVAL_MS = 2 * 60 * 1000;
+
+  const check = async () => {
+    try {
+      const liveDeployments = await db
+        .select()
+        .from(deploymentsTable)
+        .where(eq(deploymentsTable.status, "live"));
+
+      for (const dep of liveDeployments) {
+        const registered = runningDeployments.get(dep.id);
+
+        if (!registered) {
+          // Not in memory — try to recover from disk
+          const deployDir = path.join(BASE_DEPLOY_DIR, dep.id);
+          if (!existsSync(deployDir)) continue;
+          const meta = await readMeta(deployDir);
+          if (!meta) continue;
+
+          if (meta.type === "static" && meta.staticDir && existsSync(meta.staticDir)) {
+            runningDeployments.set(dep.id, { type: "static", staticDir: meta.staticDir, deploymentId: dep.id });
+            logger.info({ deploymentId: dep.id }, "Health check: restored static deployment");
+          } else if (meta.type === "process" && meta.port) {
+            const alive = await isPortAlive(meta.port);
+            if (alive) {
+              runningDeployments.set(dep.id, { type: "process", port: meta.port, deploymentId: dep.id });
+            } else {
+              await spawnProcess(dep.id, meta);
+              logger.info({ deploymentId: dep.id }, "Health check: respawned dead process");
+            }
+          }
+          continue;
+        }
+
+        // Already registered — check process deployments are still responding
+        if (registered.type === "process" && registered.port) {
+          const alive = await isPortAlive(registered.port);
+          if (!alive) {
+            const deployDir = path.join(BASE_DEPLOY_DIR, dep.id);
+            const meta = await readMeta(deployDir);
+            if (meta) {
+              await spawnProcess(dep.id, meta);
+              logger.info({ deploymentId: dep.id }, "Health check: respawned dropped process");
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, "Health check error");
+    }
+  };
+
+  // Run immediately then on interval
+  setTimeout(check, 5000);
+  setInterval(check, INTERVAL_MS);
+  logger.info({ intervalMs: INTERVAL_MS }, "Deployment health check started");
 }
 
 export async function teardownDeployment(deploymentId: string): Promise<void> {
