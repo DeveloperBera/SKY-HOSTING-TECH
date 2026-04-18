@@ -2,7 +2,7 @@ import { createServer } from "http";
 import app from "./app";
 import { initSocketIO } from "./lib/socketio";
 import { logger } from "./lib/logger";
-import { recoverDeployments } from "./lib/realBuildEngine";
+import { recoverDeployments, startHealthCheck } from "./lib/realBuildEngine";
 
 const rawPort = process.env["PORT"];
 
@@ -28,4 +28,7 @@ httpServer.listen(port, () => {
   recoverDeployments().catch((err) =>
     logger.error({ err }, "recoverDeployments failed")
   );
+
+  // Keep deployed processes alive — respawns any that die every 2 minutes
+  startHealthCheck();
 });
