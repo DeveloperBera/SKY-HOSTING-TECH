@@ -2,6 +2,7 @@ import { createServer } from "http";
 import app from "./app";
 import { initSocketIO } from "./lib/socketio";
 import { logger } from "./lib/logger";
+import { recoverDeployments } from "./lib/realBuildEngine";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +23,9 @@ initSocketIO(httpServer);
 
 httpServer.listen(port, () => {
   logger.info({ port }, "Server listening");
+
+  // Re-register all live deployments that still have files on disk after a restart
+  recoverDeployments().catch((err) =>
+    logger.error({ err }, "recoverDeployments failed")
+  );
 });
