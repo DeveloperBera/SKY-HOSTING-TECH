@@ -3,13 +3,21 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Sky Hosting API - Instant deployment platform
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: API Key management
+  - name: projects
+    description: Project operations
+  - name: deployments
+    description: Deployment operations
+  - name: admin
+    description: Admin operations
 paths:
   /healthz:
     get:
@@ -24,7 +32,251 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /v1/keys/generate:
+    post:
+      operationId: generateApiKey
+      tags: [auth]
+      summary: Generate API Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateKeyBody"
+      responses:
+        "200":
+          description: API key generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyResponse"
+
+  /v1/projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List all projects
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create a new project
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectBody"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /v1/projects/{id}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get a project by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    delete:
+      operationId: deleteProject
+      tags: [projects]
+      summary: Delete a project
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Project deleted
+
+  /v1/deploy:
+    post:
+      operationId: triggerDeployment
+      tags: [deployments]
+      summary: Trigger a new deployment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TriggerDeploymentBody"
+      responses:
+        "201":
+          description: Deployment started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deployment"
+
+  /v1/deployments:
+    get:
+      operationId: listDeployments
+      tags: [deployments]
+      summary: List all deployments
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of deployments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Deployment"
+
+  /v1/deployments/{id}:
+    get:
+      operationId: getDeployment
+      tags: [deployments]
+      summary: Get deployment details
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deployment details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deployment"
+    delete:
+      operationId: deleteDeployment
+      tags: [deployments]
+      summary: Takedown a deployment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deployment taken down
+
+  /v1/logs/{deploymentId}:
+    get:
+      operationId: getDeploymentLogs
+      tags: [deployments]
+      summary: Get deployment logs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Log history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentLogs"
+
+  /v1/admin/stats:
+    get:
+      operationId: getAdminStats
+      tags: [admin]
+      summary: Get system stats
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: System statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /v1/dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [projects]
+      summary: Get dashboard summary
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /v1/activity:
+    get:
+      operationId: getRecentActivity
+      tags: [deployments]
+      summary: Get recent activity feed
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
   schemas:
     HealthStatus:
       type: object
@@ -34,3 +286,247 @@ components:
       required:
         - status
 
+    GenerateKeyBody:
+      type: object
+      properties:
+        name:
+          type: string
+        scope:
+          type: string
+          enum: [read, write, admin]
+      required:
+        - name
+        - scope
+
+    ApiKeyResponse:
+      type: object
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        scope:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - key
+        - name
+        - scope
+        - createdAt
+
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        runtime:
+          type: string
+          enum: [static, nodejs, python, java, unknown]
+        status:
+          type: string
+          enum: [idle, building, live, failed, taken_down]
+        liveUrl:
+          type: string
+        repoUrl:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        deploymentCount:
+          type: integer
+      required:
+        - id
+        - name
+        - runtime
+        - status
+        - createdAt
+        - updatedAt
+        - deploymentCount
+
+    CreateProjectBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        repoUrl:
+          type: string
+      required:
+        - name
+
+    Deployment:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        projectName:
+          type: string
+        status:
+          type: string
+          enum: [queued, cloning, detecting, building, deploying, live, failed, taken_down]
+        runtime:
+          type: string
+          enum: [static, nodejs, python, java, unknown]
+        branch:
+          type: string
+        commitHash:
+          type: string
+        liveUrl:
+          type: string
+        repoUrl:
+          type: string
+        envVars:
+          type: object
+          additionalProperties:
+            type: string
+        startedAt:
+          type: string
+        completedAt:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - projectId
+        - projectName
+        - status
+        - runtime
+        - createdAt
+
+    TriggerDeploymentBody:
+      type: object
+      properties:
+        projectId:
+          type: string
+        repoUrl:
+          type: string
+        branch:
+          type: string
+        envVars:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - projectId
+
+    DeploymentLogs:
+      type: object
+      properties:
+        deploymentId:
+          type: string
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+      required:
+        - deploymentId
+        - logs
+
+    LogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+        level:
+          type: string
+          enum: [info, warn, error, success]
+        message:
+          type: string
+      required:
+        - timestamp
+        - level
+        - message
+
+    AdminStats:
+      type: object
+      properties:
+        totalProjects:
+          type: integer
+        totalDeployments:
+          type: integer
+        activeDeployments:
+          type: integer
+        failedDeployments:
+          type: integer
+        activeWebSocketConnections:
+          type: integer
+        serverLoad:
+          type: number
+        uptime:
+          type: number
+        masterApiKey:
+          type: string
+      required:
+        - totalProjects
+        - totalDeployments
+        - activeDeployments
+        - failedDeployments
+        - activeWebSocketConnections
+        - serverLoad
+        - uptime
+
+    DashboardSummary:
+      type: object
+      properties:
+        totalProjects:
+          type: integer
+        liveDeployments:
+          type: integer
+        buildsToday:
+          type: integer
+        successRate:
+          type: number
+        runtimeBreakdown:
+          type: object
+          properties:
+            static:
+              type: integer
+            nodejs:
+              type: integer
+            python:
+              type: integer
+            java:
+              type: integer
+          required:
+            - static
+            - nodejs
+            - python
+            - java
+      required:
+        - totalProjects
+        - liveDeployments
+        - buildsToday
+        - successRate
+        - runtimeBreakdown
+
+    ActivityItem:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [deployed, failed, taken_down, created, deleted]
+        projectName:
+          type: string
+        deploymentId:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+      required:
+        - id
+        - type
+        - projectName
+        - message
+        - timestamp

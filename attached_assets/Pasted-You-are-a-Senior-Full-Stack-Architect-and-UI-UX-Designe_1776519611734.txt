@@ -1,0 +1,88 @@
+You are a Senior Full-Stack Architect and UI/UX Designer. Build **"Sky Hosting"** — A next-generation, instant deployment platform similar to Vercel/Netlify but with a unique "Dark Aero" aesthetic and an incredibly powerful unified API.
+
+**CRITICAL REQUIREMENT:** The output must be a fully functional monorepo structure ready for **one-click deployment on Render.com or Railway.app**. Use **Node.js (Express) + Socket.io** for real-time logs, and **React (Vite) + TailwindCSS + Shadcn/ui** for the frontend.
+
+## 1. The "Stand Out" Core Concept (The Sky Edge)
+- **Multi-Runtime Detection:** The system should auto-detect if a repo is Static HTML, Node.js, Python (Flask/FastAPI), or Java (Spring Boot/Maven) based on `package.json`, `requirements.txt`, or `pom.xml`.
+- **Deploy in Seconds:** Using Docker-in-Docker (DinD) simulation for local dev, but provide **production-ready buildpacks** for Render/Railway compatibility.
+- **The "Sky API" First:** Unlike competitors, the API must have *equal power to the UI*. A user with an API Key can create projects, deploy via file upload or Git URL, scale resources, and delete deployments purely via REST calls.
+- **Live Terminal Over WebSocket:** Users can click "Open Console" on a running container to see `npm run build` happening live in their browser.
+
+## 2. Project Structure (Provide Complete Code)
+Please generate the following folder structure with full file contents. Ensure all code is modular and ready to run with `npm run dev` (backend) and `npm run dev` (frontend).
+
+```
+
+sky-hosting/
+├── backend/
+│   ├── package.json
+│   ├── Dockerfile (For deployment on Railway)
+│   ├── src/
+│   │   ├── index.js (Express Server + Socket.io)
+│   │   ├── routes/
+│   │   │   ├── auth.js (API Key generation)
+│   │   │   ├── projects.js
+│   │   │   ├── deployments.js
+│   │   │   └── admin.js (System stats)
+│   │   ├── services/
+│   │   │   ├── buildEngine.js (Detects Python/Node/Static)
+│   │   │   └── dockerSandbox.js (Simulates container logs)
+│   │   ├── models/ (Prisma or Mongoose schemas)
+│   │   │   ├── User.js
+│   │   │   ├── Project.js
+│   │   │   └── Deployment.js
+│   │   └── middleware/auth.js (API Key validation)
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.js
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── pages/
+│   │   │   ├── Dashboard.jsx (Modern 3D Glassmorphism)
+│   │   │   ├── ProjectDetail.jsx
+│   │   │   ├── ApiDocs.jsx (Swagger-like custom dark theme)
+│   │   │   └── AdminPanel.jsx
+│   │   ├── components/
+│   │   │   ├── Terminal.jsx (WebSocket live log viewer)
+│   │   │   └── SkyGlobe.jsx (Three.js interactive background element)
+│   │   └── lib/axios.js (Handles API Key header)
+├── docker-compose.yml (Local simulation)
+└── railway.json / render.yaml (Deployment configs)
+
+```
+
+## 3. Detailed Feature Specifications
+
+### A. Admin Panel & API Key Management
+- **UI:** A dedicated route `/admin`. Show a card with "Master API Key" (can be rotated). Display total deployments, active WebSocket connections, and server load.
+- **API Endpoint:** `POST /api/v1/keys/generate` -> Returns a scoped key (e.g., `sk_live_xyz`).
+- **Functionality:** The API Key must be valid in the `Authorization: Bearer sk_live_xyz` header. Implement middleware that checks the key against the User model.
+
+### B. The Deployment Engine (The "Seconds" Promise)
+- **File Upload:** Drag-and-drop folder handling. Zip it on client, send to `/api/deploy/upload`. Backend unzips to `/tmp/sky-[id]`.
+- **Git Clone:** `POST /api/deploy/git` with `{ repoUrl: "...", branch: "main" }`.
+- **Build Process Simulation (Important for Demo):**
+  Since we cannot run actual insecure containers in a standard Node environment, create a **MockBuilder** service that emits progressive `stdout` logs over Socket.io with realistic delays (npm install -> build -> success). *Add a comment in code: "// REPLACE WITH DOCKERODE FOR PRODUCTION"*.
+- **URL Generation:** After "deployment", generate a subdomain: `https://[project-name]-[random-hash].skyhosting.app` (simulate via local `/preview/:id` route for frontend demo).
+
+### C. UI/UX: "So Cool" Factor
+- **Background:** Deep space blue gradient (`#0B0F19` to `#1A2333`) with a rotating wireframe globe (use `react-three-fiber` or a pure CSS animated mesh).
+- **Cards:** Blurred glass background with 1px white border and 10% opacity.
+- **The "Deploy Bar":** A floating input bar at the top center of the dashboard. It accepts a Git URL or a folder drop. Upon submission, a vertical timeline animation plays showing: `Cloning → Detecting Runtime (Python 3.11) → Building → Live`.
+- **Live URL Button:** Once done, a neon green "LIVE" badge appears. Clicking it opens the deployed site in a new tab (even if it's just a static echo server for demo).
+
+### D. API Control (The "Everything" Feature)
+Provide the exact OpenAPI 3.0 YAML spec embedded in the `/docs` page. Implement these exact endpoints:
+- `GET /api/v1/projects` - List projects.
+- `POST /api/v1/deploy` - Trigger new deployment (body includes env vars JSON).
+- `DELETE /api/v1/deployments/:id` - Takedown.
+- `GET /api/v1/logs/:deploymentId` - Returns log history.
+
+## 4. Deployment Configurations (Render/Railway Ready)
+Please ensure the root directory contains:
+1. **For Railway:** A `railway.json` or `nixpacks.toml` that builds the backend and frontend static files.
+2. **For Render:** A `render.yaml` blueprint with a `web` service (backend) and a `static` site (frontend).
+
+## 5. Output Formatting
+- Provide complete, copy-pasteable file contents for **at least** `index.js`, `App.jsx`, `Dashboard.jsx`, `buildEngine.js`, and `deployments.js`.
+- **Crucial:** Ensure the frontend makes API calls using `import.meta.env.VITE_API_URL` so it works on both localhost and production Render/Railway URLs.

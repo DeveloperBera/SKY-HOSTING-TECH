@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Sky Hosting"
+version = "1.0.0"
+id = "artifacts/sky-hosting"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19632
+
+[services.development]
+run = "pnpm --filter @workspace/sky-hosting run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/sky-hosting", "run", "build" ]
+publicDir = "artifacts/sky-hosting/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19632"
+BASE_PATH = "/"
